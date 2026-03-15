@@ -1,0 +1,49 @@
+--- a/core/rtw_recv.c	2026-03-15 22:59:22.349450813 +0700
++++ b/core/rtw_recv.c	2026-03-15 22:59:25.378872032 +0700
+@@ -4340,33 +4340,37 @@
+ 	struct recv_priv *precvpriv;
+ 	s32 ret = _SUCCESS;
+ 
+-
+-
+ 	padapter = precvframe->u.hdr.adapter;
+-
+ 	precvpriv = &padapter->recvpriv;
+ 
+-
+ 	ret = recv_func(padapter, precvframe);
+ 	if (ret == _FAIL) {
+ 		goto _recv_entry_drop;
+ 	}
+ 
++	// ambil rate dari paket yang baru saja diproses oleh recv_func
++  {
++		struct recv_frame_hdr *phdr = &precvframe->u.hdr;
++		struct rx_pkt_attrib *pattrib = &phdr->attrib;
++		unsigned char *sa = get_sa(phdr->rx_data); // Ambil MAC address pengirim
++		
++		if (sa) {
++			struct sta_info *psta = rtw_get_stainfo(&padapter->stapriv, sa);
++			if (psta) {
++				psta->curr_rx_rate = pattrib->data_rate;
++			}
++		}
++	}
+ 
+ 	precvpriv->rx_pkts++;
+ 
+-
+ 	return ret;
+ 
+ _recv_entry_drop:
+-
+ #ifdef CONFIG_MP_INCLUDED
+ 	if (padapter->registrypriv.mp_mode == 1)
+ 		padapter->mppriv.rx_pktloss = precvpriv->rx_drop;
+ #endif
+-
+-
+-
+ 	return ret;
+ }
+ 
