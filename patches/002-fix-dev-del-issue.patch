@@ -1,0 +1,58 @@
+--- a/os_dep/linux/ioctl_cfg80211.c
++++ b/os_dep/linux/ioctl_cfg80211.c
+@@ -9637,10 +9637,12 @@ void rtw_wdev_unregister(struct wireless
+ 	RTW_INFO("%s(wdev=%p)\n", __func__, wdev);
+ 
+ 	ndev = wdev_to_ndev(wdev);
++
+ 	if (!ndev)
+ 		return;
+ 
+ 	adapter = (_adapter *)rtw_netdev_priv(ndev);
++
+ 	pwdev_priv = adapter_wdev_data(adapter);
+ 
+ 	rtw_cfg80211_indicate_scan_done(adapter, _TRUE);
+@@ -9656,9 +9658,17 @@ void rtw_wdev_unregister(struct wireless
+ 	}
+ 	#endif
+ 
+-	if (pwdev_priv->pmon_ndev) {
++	if ((pwdev_priv) && (pwdev_priv->pmon_ndev)) {		
+ 		RTW_INFO("%s, unregister monitor interface\n", __func__);
+-		unregister_netdev(pwdev_priv->pmon_ndev);
++
++		struct net_device * netdev;
++		struct dvobj_priv *dvobj;
++
++		dvobj = adapter_to_dvobj(adapter);
++		
++		netdev = pwdev_priv->pmon_ndev;
++		unregister_netdev(netdev);
++		pwdev_priv->pmon_ndev = NULL;
+ 	}
+ }
+ 
+--- a/os_dep/linux/mlme_linux.c
++++ b/os_dep/linux/mlme_linux.c
+@@ -422,7 +422,8 @@ void hostapd_mode_unload(_adapter *padap
+ 	struct net_device *pnetdev = phostapdpriv->pmgnt_netdev;
+ 
+ 	unregister_netdev(pnetdev);
+-	rtw_free_netdev(pnetdev);
++	phostapdpriv->pmgnt_netdev = NULL;
++	rtw_free_netdev(pnetdev);	
+ 
+ }
+ 
+--- a/os_dep/linux/os_intfs.c
++++ b/os_dep/linux/os_intfs.c
+@@ -1694,6 +1694,8 @@ void rtw_os_ndev_unregister(_adapter *ad
+ 			unregister_netdev(netdev);
+ 		else
+ 			unregister_netdevice(netdev);
++
++		adapter->pnetdev = NULL;
+ 	}
+ 
+ #if defined(CONFIG_IOCTL_CFG80211) && !defined(RTW_SINGLE_WIPHY)

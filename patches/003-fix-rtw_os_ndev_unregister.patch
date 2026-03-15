@@ -1,0 +1,21 @@
+--- a/os_dep/linux/ioctl_cfg80211.c	2026-03-12 15:43:55.914206314 +0700
++++ b/os_dep/linux/ioctl_cfg80211.c	2026-03-12 15:43:50.129185373 +0700
+@@ -6759,10 +6759,14 @@
+ 			pwdev_priv->pmon_ndev = NULL;
+ 			pwdev_priv->ifname_mon[0] = '\0';
+ 			RTW_INFO(FUNC_NDEV_FMT" remove monitor ndev\n", FUNC_NDEV_ARG(ndev));
+-		} else {
+-			RTW_INFO(FUNC_NDEV_FMT" unregister ndev\n", FUNC_NDEV_ARG(ndev));
+-			rtw_os_ndev_unregister(adapter);
+-		}
++    } else {
++      RTW_INFO(FUNC_NDEV_FMT" unregister ndev\n", FUNC_NDEV_ARG(ndev));
++      // Set flag agar driver tahu device ini sudah tidak terdaftar
++      adapter->registered = 0; 
++      adapter->ndev_unregistering = 0;
++      // SKIP rtw_os_ndev_unregister - tidak dipanggil
++      // rtw_os_ndev_unregister(adapter);
++  }
+ 	} else
+ #if defined(CONFIG_P2P) && defined(RTW_DEDICATED_P2P_DEVICE)
+ 	if (wdev->iftype == NL80211_IFTYPE_P2P_DEVICE) {
