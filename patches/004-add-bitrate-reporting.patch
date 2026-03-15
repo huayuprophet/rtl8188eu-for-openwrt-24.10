@@ -1,5 +1,5 @@
---- a/os_dep/linux/ioctl_cfg80211.c	2026-03-15 20:55:38.669660479 +0700
-+++ b/os_dep/linux/ioctl_cfg80211.c	2026-03-15 20:55:34.243032735 +0700
+--- a/os_dep/linux/ioctl_cfg80211.c	2026-03-16 04:48:46.390901389 +0700
++++ b/os_dep/linux/ioctl_cfg80211.c	2026-03-16 04:48:43.089701286 +0700
 @@ -35,9 +35,10 @@
  #define STATION_INFO_PLINK_STATE	BIT(NL80211_STA_INFO_PLINK_STATE)
  #define STATION_INFO_SIGNAL			BIT(NL80211_STA_INFO_SIGNAL)
@@ -12,7 +12,7 @@
  #define STATION_INFO_LOCAL_PM		BIT(NL80211_STA_INFO_LOCAL_PM)
  #define STATION_INFO_PEER_PM		BIT(NL80211_STA_INFO_PEER_PM)
  #define STATION_INFO_NONPEER_PM		BIT(NL80211_STA_INFO_NONPEER_PM)
-@@ -5995,71 +5996,163 @@
+@@ -5995,71 +5996,185 @@
  	return psta;
  }
  
@@ -85,56 +85,48 @@
 +{
 +    u8 rate;
 +    u8 mcs;
-+    u8 bw;
 +    static const u16 legacy_rates[] = {
-+        10, 20, 55, 110,   /* 1, 2, 5.5, 11 Mbps */
-+        60, 90, 120, 180,  /* 6, 9, 12, 18 Mbps */
-+        240, 360, 480, 540 /* 24, 36, 48, 54 Mbps */
++        10, 20, 55, 110, 60, 90, 120, 180, 240, 360, 480, 540
 +    };
 +
 +    memset(rinfo, 0, sizeof(struct rate_info));
 +
-+    /* Ambil rate dari firmware */
++    /* Ambil dari Rate Adaptive (RA) info */
 +    rate = psta->cmn.ra_info.curr_tx_rate;
 +
-+    /* ===== Fallback jika firmware lapor invalid ===== */
++    /* Fallback */
 +    if (rate == 0x00 || rate == 0xFF || rate == 0xFE) {
-+        if (psta->last_tx_rate)
-+            rate = psta->last_tx_rate; /* pakai rate terakhir */
-+        else if (psta->htpriv.ht_option)
-+            rate = 0x87;               /* default MCS7 HT 1x1 */
-+        else
-+            rate = 11;                 /* fallback legacy 54 Mbps */
++        rate = (psta->last_tx_rate) ? psta->last_tx_rate : (psta->htpriv.ht_option ? 0x87 : 11);
 +    }
 +
-+    /* ===== Decode HT / Legacy ===== */
 +    if (rate & 0x80) {
-+        /* HT rate */
-+        mcs = rate & 0x7F;
-+        if (mcs > 7)
-+            mcs = 7; /* Clamp RTL8188EU 1x1 */
-+
++        /* HT rate (MCS) */
 +        rinfo->flags |= RATE_INFO_FLAGS_MCS;
-+        rinfo->mcs = mcs;
++        rinfo->mcs = (rate & 0x7F) > 7 ? 7 : (rate & 0x7F);
 +
 +#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
-+        bw = psta->cmn.ra_info.ra_bw_mode;
-+        rinfo->bw = (bw >= CHANNEL_WIDTH_40) ? RATE_INFO_BW_40 : RATE_INFO_BW_20;
++    if (psta->htpriv.ht_cap.cap_info & IEEE80211_HT_CAP_SUP_WIDTH) {
++        /* Cek apakah AP atau STA sedang dalam mode 40MHz */
++        if (psta->cmn.ra_info.ra_bw_mode >= CHANNEL_WIDTH_40)
++            rinfo->bw = RATE_INFO_BW_40;
++        else
++            rinfo->bw = RATE_INFO_BW_20;
++    } else {
++        rinfo->bw = RATE_INFO_BW_20;
++    }
 +#endif
 +
-+        /* Short GI */
 +        if (psta->htpriv.ht_cap.cap_info & (IEEE80211_HT_CAP_SGI_20 | IEEE80211_HT_CAP_SGI_40))
 +            rinfo->flags |= RATE_INFO_FLAGS_SHORT_GI;
 +
 +    } else {
-+        /* Legacy rate */
++        /* Legacy rate - Pastikan 540 (unit 100kbps) */
 +        if (rate < ARRAY_SIZE(legacy_rates))
 +            rinfo->legacy = legacy_rates[rate];
 +        else
-+            rinfo->legacy = 54; /* fallback */
++            rinfo->legacy = 540; /* FIX: Dari 54 jadi 540 */
 +    }
 +
-+    /* Simpan rate valid terakhir */
 +    psta->last_tx_rate = rate;
 +}
 +
@@ -143,43 +135,47 @@
 +// ==========================================================
 +static void rtw_get_sta_rxrate(struct sta_info *psta, struct rate_info *rinfo)
 +{
-+    u8 rate;
++    u8 rate = psta->curr_rx_rate;
 +    u8 mcs;
-+    u8 bw;
++    static const u16 legacy_rates[] = {
++        10, 20, 55, 110, 60, 90, 120, 180, 240, 360, 480, 540
++    };
 +
 +    memset(rinfo, 0, sizeof(struct rate_info));
 +
-+    rate = psta->curr_rx_rate; /* RX terakhir unicast */
-+    if (!rate)
-+        return; /* belum ada paket RX */
++    /* Fallback jika data kosong/invalid */
++    if (rate == 0x00 || rate == 0xFF || rate == 0xFE) {
++        if (psta->last_rx_rate)
++            rate = psta->last_rx_rate;
++        else
++            rate = (psta->htpriv.ht_option) ? 0x87 : 0x0B; // Default MCS7 atau 54Mbps
++    }
 +
 +    if (rate & 0x80) {
-+        /* HT */
++        /* Mode HT (MCS) */
 +        mcs = rate & 0x7F;
-+        if (mcs > 7)
-+            mcs = 7;
++        if (mcs > 7) mcs = 7;
 +
 +        rinfo->flags |= RATE_INFO_FLAGS_MCS;
 +        rinfo->mcs = mcs;
 +
 +#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
-+        bw = psta->cmn.ra_info.ra_bw_mode;
-+        rinfo->bw = (bw >= CHANNEL_WIDTH_40) ? RATE_INFO_BW_40 : RATE_INFO_BW_20;
++        rinfo->bw = (psta->cmn.ra_info.ra_bw_mode >= CHANNEL_WIDTH_40) ? 
++                    RATE_INFO_BW_40 : RATE_INFO_BW_20;
 +#endif
 +
 +        if (psta->htpriv.ht_cap.cap_info & (IEEE80211_HT_CAP_SGI_20 | IEEE80211_HT_CAP_SGI_40))
 +            rinfo->flags |= RATE_INFO_FLAGS_SHORT_GI;
 +
 +    } else {
-+        /* Legacy */
-+        static const u16 legacy_rates[] = {
-+            10, 20, 55, 110, 60, 90, 120, 180, 240, 360, 480, 540
-+        };
++        /* Mode Legacy */
 +        if (rate < ARRAY_SIZE(legacy_rates))
 +            rinfo->legacy = legacy_rates[rate];
 +        else
-+            rinfo->legacy = 54;
++            rinfo->legacy = 540; /* Pakai 540 agar tampil 54 MBit/s */
 +    }
++
++    psta->last_rx_rate = rate;
 +}
 +
 +// ==========================================================
@@ -211,26 +207,52 @@
 +    _rtw_memcpy(mac, psta->cmn.mac_addr, ETH_ALEN);
 +    sinfo->filled = 0;
 +
-+    /* SIGNAL */
++    /* SIGNAL & INACTIVE TIME */
 +    sinfo->filled |= STATION_INFO_SIGNAL;
 +    sinfo->signal = translate_percentage_to_dbm(psta->cmn.rssi_stat.rssi);
-+
-+    /* INACTIVE TIME */
 +    sinfo->filled |= STATION_INFO_INACTIVE_TIME;
 +    sinfo->inactive_time = rtw_get_passing_time_ms(psta->sta_stats.last_rx_time);
 +
-+    /* TX BITRATE */
++    /* TX BITRATE - Mapping Manual (Final Fix) */
 +    rtw_get_sta_txrate(padapter, psta, &rinfo);
 +    if (rinfo.legacy || (rinfo.flags & RATE_INFO_FLAGS_MCS)) {
 +        sinfo->filled |= STATION_INFO_TX_BITRATE;
-+        memcpy(&sinfo->txrate, &rinfo, sizeof(struct rate_info));
++        memset(&sinfo->txrate, 0, sizeof(sinfo->txrate));
++
++        if (rinfo.flags & RATE_INFO_FLAGS_MCS) {
++            sinfo->txrate.flags = RATE_INFO_FLAGS_MCS; 
++            sinfo->txrate.mcs = rinfo.mcs;
++            
++            /* Gunakan Macro agar tidak salah baca enum kernel */
++            sinfo->txrate.bw = (rinfo.bw == RATE_INFO_BW_40) ? RATE_INFO_BW_40 : RATE_INFO_BW_20;
++            sinfo->txrate.nss = 1; 
++            
++            if (rinfo.flags & RATE_INFO_FLAGS_SHORT_GI)
++                sinfo->txrate.flags |= RATE_INFO_FLAGS_SHORT_GI;
++        } else {
++            sinfo->txrate.legacy = rinfo.legacy;
++        }
 +    }
 +
-+    /* RX BITRATE */
++    /* RX BITRATE - Mapping Manual (Final Fix) */
 +    rtw_get_sta_rxrate(psta, &rinfo);
 +    if (rinfo.legacy || (rinfo.flags & RATE_INFO_FLAGS_MCS)) {
 +        sinfo->filled |= STATION_INFO_RX_BITRATE;
-+        memcpy(&sinfo->rxrate, &rinfo, sizeof(struct rate_info));
++        memset(&sinfo->rxrate, 0, sizeof(sinfo->rxrate));
++        
++        if (rinfo.flags & RATE_INFO_FLAGS_MCS) {
++            sinfo->rxrate.flags = RATE_INFO_FLAGS_MCS;
++            sinfo->rxrate.mcs = rinfo.mcs;
++            
++            /* Gunakan Macro agar tidak salah baca enum kernel */
++            sinfo->rxrate.bw = (rinfo.bw == RATE_INFO_BW_40) ? RATE_INFO_BW_40 : RATE_INFO_BW_20;
++            sinfo->rxrate.nss = 1;
++            
++            if (rinfo.flags & RATE_INFO_FLAGS_SHORT_GI)
++                sinfo->rxrate.flags |= RATE_INFO_FLAGS_SHORT_GI;
++        } else {
++            sinfo->rxrate.legacy = rinfo.legacy;
++        }
 +    }
  
  exit:
