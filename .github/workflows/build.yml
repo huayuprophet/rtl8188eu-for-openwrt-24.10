@@ -39,28 +39,23 @@ jobs:
 
       - name: Prepare Package
         run: |
-          # 1. 进入源码目录
-          cd source
+          # 1. 删除源码中自带的旧版 rtl8188eu 驱动，防止冲突
+          rm -rf source/package/kernel/rtl8188eu
           
-          # 2. 关键步骤：删除源码中自带的 rtl8188eu 包，防止冲突
-          # OpenWrt 官方源码中通常位于 package/kernel/rtl8188eu
-          rm -rf package/kernel/rtl8188eu
+          # 2. 创建标准目录
+          mkdir -p source/package/kernel/rtl8188eu
           
-          # 3. 创建目标文件夹 (这才是正确的路径)
-          mkdir -p package/kernel/rtl8188eu
-          
-          # 4. 将你的驱动源码复制到这个标准路径下
-          # 注意：这里是从仓库根目录复制到源码的标准路径
-          cp -r .././* package/kernel/rtl8188eu/
-          
-          # 5. 安装 feeds (这一步会注册依赖)
-          ./scripts/feeds install -a
+          # 3. 复制你的驱动源码到标准目录
+          # 关键点：这里不使用 cd source，而是直接指定源和目标路径
+          # 源路径：当前仓库根目录 (.)
+          # 目标路径：source/package/kernel/rtl8188eu
+          # 排除 .git 目录和 source 目录本身，防止死循环
+          cp -r ./* source/package/kernel/rtl8188eu/
 
       - name: Configure Build
         run: |
           cd source
           # 使用 echo -e 写入配置，避免 YAML 缩进错误
-          # 这里配置包名为 rtl8188eu (原名)
           echo -e "CONFIG_TARGET_BOARD=\"${{ github.event.inputs.target }}\"\nCONFIG_TARGET_SUBTARGET=\"${{ github.event.inputs.subtarget }}\"\nCONFIG_TARGET_PROFILE=\"Default\"\nCONFIG_PACKAGE_rtl8188eu=m" > .config
           
           make defconfig
