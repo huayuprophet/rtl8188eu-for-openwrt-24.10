@@ -30,35 +30,46 @@ jobs:
 
       - name: Clone ImmortalWrt Source 24.10.5
         run: |
-          # 1. 克隆完整源码 (为了获取固件依赖)
+          # 1. 克隆完整源码
           git clone --depth 1 -b v24.10.5 https://github.com/immortalwrt/immortalwrt.git source
           
-          # 2. 进入目录并更新 feeds
           cd source
+          # 2. 更新 feeds
           ./scripts/feeds update -a
 
       - name: Prepare Package
         run: |
-          # 1. 将你的驱动源码复制到 package 目录
-          # 重命名为 rtl8188eu-custom 以避免与官方源码中的同名包冲突
-          cp -r ./* source/package/rtl8188eu-custom/
-          
-          # 2. 安装 feeds (这一步会注册 rtl8188eu-firmware 依赖)
+          # 1. 进入源码目录
           cd source
+          
+          # 2. 关键步骤：删除源码中自带的 rtl8188eu 包，防止冲突
+          # OpenWrt 官方源码中通常位于 package/kernel/rtl8188eu
+          rm -rf package/kernel/rtl8188eu
+          
+          # 3. 创建目标文件夹 (这才是正确的路径)
+          mkdir -p package/kernel/rtl8188eu
+          
+          # 4. 将你的驱动源码复制到这个标准路径下
+          # 注意：这里是从仓库根目录复制到源码的标准路径
+          cp -r .././* package/kernel/rtl8188eu/
+          
+          # 5. 安装 feeds (这一步会注册依赖)
           ./scripts/feeds install -a
 
       - name: Configure Build
         run: |
           cd source
-          # 使用 echo -e 替代 cat <<EOF 以避免 YAML 缩进错误
-          echo -e "CONFIG_TARGET_BOARD=\"${{ github.event.inputs.target }}\"\nCONFIG_TARGET_SUBTARGET=\"${{ github.event.inputs.subtarget }}\"\nCONFIG_TARGET_PROFILE=\"Default\"\nCONFIG_PACKAGE_rtl8188eu-custom=m" > .config
+          # 使用 echo -e 写入配置，避免 YAML 缩进错误
+          # 这里配置包名为 rtl8188eu (原名)
+          echo -e "CONFIG_TARGET_BOARD=\"${{ github.event.inputs.target }}\"\nCONFIG_TARGET_SUBTARGET=\"${{ github.event.inputs.subtarget }}\"\nCONFIG_TARGET_PROFILE=\"Default\"\nCONFIG_PACKAGE_rtl8188eu=m" > .config
+          
           make defconfig
 
       - name: Build Package
         run: |
           cd source
-          # 编译你的驱动包
-          make package/rtl8188eu-custom/compile -j$(nproc) V=s
+          # 编译驱动
+          make package/kernel/rtl8188eu/compile -j$(nproc) V=s
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
