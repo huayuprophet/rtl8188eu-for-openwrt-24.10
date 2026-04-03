@@ -30,53 +30,42 @@ jobs:
 
       - name: Clone ImmortalWrt Source 24.10.5
         run: |
-          # 定义版本
-          VERSION="24.10.5"
-          # 克隆源码
-          git clone --depth 1 -b releases/${VERSION} https://github.com/immortalwrt/immortalwrt.git source
-          cd source
+          # 1. 克隆完整源码 (为了获取固件依赖)
+          git clone --depth 1 -b v24.10.5 https://github.com/immortalwrt/immortalwrt.git source
           
-          # 初始化 feeds
+          # 2. 进入目录并更新 feeds
+          cd source
           ./scripts/feeds update -a
 
       - name: Prepare Package
         run: |
-          # 1. 复制你的驱动代码到源码树的 package 目录
-          # 注意：这里假设你的仓库根目录下的文件（Makefile, core, hal 等）是驱动源码
+          # 1. 将你的驱动源码复制到 package 目录
+          # 重命名为 rtl8188eu-custom 以避免与官方源码中的同名包冲突
           cp -r ./* source/package/rtl8188eu-custom/
           
-          # 2. 进入源码目录
+          # 2. 安装 feeds (这一步会注册 rtl8188eu-firmware 依赖)
           cd source
-          
-          # 3. 安装所有 feeds (这会包含 rtl8188eu-firmware 等依赖)
           ./scripts/feeds install -a
 
-      - name: Configure Firmware
+      - name: Configure Build
         run: |
           cd source
-          # 生成 .config 文件
-          # TARGET 和 SUBTARGET 处理
-          TARGET_BOARD="${{ github.event.inputs.target }}"
-          TARGET_SUBTARGET="${{ github.event.inputs.subtarget }}"
-
-          # 写入配置
+          
+          # 创建 .config 文件
           cat > .config <<EOF
-# 通用设置
-CONFIG_TARGET_BOARD="$TARGET_BOARD"
-CONFIG_TARGET_SUBTARGET="$TARGET_SUBTARGET"
+CONFIG_TARGET_BOARD="${{ github.event.inputs.target }}"
+CONFIG_TARGET_SUBTARGET="${{ github.event.inputs.subtarget }}"
 CONFIG_TARGET_PROFILE="Default"
-CONFIG_TARGET_IMAGES_GZIP=y
 CONFIG_PACKAGE_rtl8188eu-custom=m
 EOF
 
-          # 运行 defconfig
+          # 生成配置
           make defconfig
 
       - name: Build Package
         run: |
           cd source
-          # 开始编译
-          # 错误提示：如果提示内存不足，可以去掉 -j$(nproc) 让其单线程编译
+          # 编译你的驱动包
           make package/rtl8188eu-custom/compile -j$(nproc) V=s
 
       - name: Upload Artifacts
