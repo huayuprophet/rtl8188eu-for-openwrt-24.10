@@ -28,11 +28,10 @@ jobs:
           libncursesw5-dev libc6-dev libssl-dev libstdc++-14-dev \
           libxml-parser-perl make unzip wget xsltproc zlib1g-dev zstd
 
-      - name: Download and Extract SDK (Fixed Link)
+      - name: Download and Extract SDK
         run: |
-          # 1. 定义 SDK 绝对链接
-          # 根据网页解析内容，直接使用 x86_64 版本的硬链接
-          SDK_URL="https://downloads.immortalwrt.org/releases/2024.10.5/targets/x86/64/immortalwrt-sdk-2024.10.5-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+          # 1. 定义正确的 SDK 绝对链接
+          SDK_URL="https://downloads.immortalwrt.org/releases/24.10.5/targets/x86/64/immortalwrt-sdk-24.10.5-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
           
           # 2. 下载 SDK
           echo "Downloading SDK from: $SDK_URL"
@@ -55,13 +54,12 @@ jobs:
           mkdir -p sdk/package/rtl8188eu
           
           # 2. 复制你的驱动源码（Makefile, core, hal, patches 等）到 SDK 中
-          # 注意：这里假设你的仓库根目录就是驱动源码目录
           cp -r ./* sdk/package/rtl8188eu/
           
           # 3. 进入 SDK 目录
           cd sdk
           
-          # 4. 更新 feeds (SDK 通常不需要，但为了保险)
+          # 4. 更新 feeds (可选，为了保险)
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
@@ -69,8 +67,7 @@ jobs:
         run: |
           cd sdk
           # 写入配置
-          # 注意：SDK 编译通常不需要指定 TARGET_BOARD，因为它已经在 SDK 内部定好了
-          # 我们只需要启用我们的包
+          # SDK 已经预设了目标架构，只需启用我们的包
           echo "CONFIG_PACKAGE_rtl8188eu=m" >> .config
           
           make defconfig
