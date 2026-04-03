@@ -45,12 +45,30 @@ jobs:
           # 2. 创建标准目录
           mkdir -p source/package/kernel/rtl8188eu
           
-          # 3. 复制你的驱动源码到标准目录
-          # 关键点：这里不使用 cd source，而是直接指定源和目标路径
-          # 源路径：当前仓库根目录 (.)
-          # 目标路径：source/package/kernel/rtl8188eu
-          # 排除 .git 目录和 source 目录本身，防止死循环
-          cp -r ./* source/package/kernel/rtl8188eu/
+          # 3. 重构复制逻辑：显式复制已知文件，排除 source 目录
+          # 这样彻底避免了把 source 目录复制进它自己的死循环
+          # 假设你的仓库根目录包含：patches, Makefile, core, hal 等
+          
+          # 复制 patches 文件夹 (如果存在)
+          if [ -d "patches" ]; then
+            cp -r patches source/package/kernel/rtl8188eu/
+          fi
+          
+          # 复制 Makefile (如果存在)
+          if [ -f "Makefile" ]; then
+            cp Makefile source/package/kernel/rtl8188eu/
+          fi
+          
+          # 复制其他驱动源码目录 (根据你的实际目录结构调整，例如 core, hal, os_dep)
+          # 这里使用通配符，但排除了 .git 和 source 目录
+          for dir in core hal os_dep; do
+            if [ -d "$dir" ]; then
+              cp -r "$dir" source/package/kernel/rtl8188eu/
+            fi
+          done
+          
+          # 复制根目录下的其他必要文件 (如 Kconfig, 如果有的话)
+          cp -n ./* source/package/kernel/rtl8188eu/ 2>/dev/null || true
 
       - name: Configure Build
         run: |
