@@ -25,56 +25,72 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
           gettext git java-propose-classpath libelf-dev libncurses5-dev \
-          libncursesw5-dev libc6-dev openssl libssl-dev \
-          libstdc++-14-dev libxml-parser-perl make unzip wget xsltproc zlib1g-dev curl
+          libncursesw5-dev libc6-dev libssl-dev libstdc++-14-dev \
+          libxml-parser-perl make unzip wget xsltproc zlib1g-dev
 
-      - name: Download ImmortalWrt SDK
+      - name: Download SDK
         run: |
+          # 定义变量
           TARGET="${{ github.event.inputs.target }}"
-          # 定义基础 URL
-          BASE_URL="https://downloads.immortalwrt.org/releases/24.10-SNAPSHOT/targets/${TARGET}"
-          
-          # 自动获取 SDK 的真实文件名 (通过解析 HTML 页面)
-          # 这一步是为了防止文件名变动导致下载失败
-          SDK_FILE=$(curl -s ${BASE_URL}/ | grep -oP 'immortalwrt-sdk-24.10-SNAPSHOT-.*?\.tar\.xz' | head -n 1)
-          
+          SUBTARGET="${{ github.event.inputs.subtarget }}"
+          BASE_URL="https://downloads.immortalwrt.org/releases/24.10-SNAPSHOT/targets/${TARGET}/${SUBTARGET}"
+
+          # 自动获取 SDK 的真实文件名 (根据你提供的网页内容，后缀是 .tar.zst)
+          SDK_FILE=$(curl -s ${BASE_URL}/ | grep -oP 'immortalwrt-sdk-24.10-SNAPSHOT-.*?\.tar\.zst' | head -n 1)
+
           if [ -z "$SDK_FILE" ]; then
-            echo "Error: Could not find SDK file on server. Check target architecture."
+            echo "Error: Could not find SDK file on server. URL: ${BASE_URL}"
             exit 1
           fi
-          
-          echo "Found SDK: $SDK_FILE"
-          wget -q ${BASE_URL}/${SDK_FILE} -O sdk.tar.xz
-          
-          # 解压 SDK
+
+          echo "Downloading SDK: $SDK_FILE"
+          wget -q ${BASE_URL}/${SDK_FILE} -O sdk.tar.zst
+
+          # 解压 SDK (zst格式)
           mkdir sdk
-          tar -xf sdk.tar.xz -C sdk --strip-components=1
+          tar -xf sdk.tar.zst -C sdk --strip-components=1
           echo "SDK extracted successfully."
 
-      - name: Prepare Package
+      - name: Apply Patches
         run: |
-          cd sdk
-          
-          # 创建驱动目录
-          mkdir -p package/rtl8188eu
-          
-          # 复制源码 (Makefile 和 patches)
-          cp -r ../Makefile package/rtl8188eu/
-          cp -r ../patches package/rtl8188eu/ 2>/dev/null || true
-          
-          # 更新 feeds
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          # 将仓库中的 patches 文件夹复制到 SDK 的驱动源码目录
+          # 假设驱动位于 package/kernel/rtl8188eu
+          SDK_DIR=$(pwd)/sdk
+          PATCH_DIR=$(pwd)/patches
+          DRIVER_DIR="${SDK_DIR}/package/kernel/rtl8188eu"
+
+          # 检查驱动目录是否存在，不存在则创建
+          if [ ! -d "$DRIVER_DIR" ]; then
+            mkdir -p "$DRIVER_DIR"
+          fi
+
+          # 复制补丁文件
+          cp -r ${PATCH_DIR}/* ${DRIVER_DIR}/
+          echo "Patches copied to ${DRIVER_DIR}"
+
+          # 如果有 Makefile 在根目录，也复制进去（覆盖或补充）
+          if [ -f "Makefile" ]; then
+             cp Makefile ${DRIVER_DIR}/
+             echo "Root Makefile copied to driver directory."
+          fi
 
       - name: Build Package
         run: |
           cd sdk
-          # 编译命令
-          make package/rtl8188eu/compile V=s -j$(nproc)
+          # 更新 feeds
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-      - name: Upload Artifact
+          # 编译驱动
+          # 使用你的 Target 和 Subtarget
+          make package/kernel/rtl8188eu/compile V=s \
+              TARGET="${{ github.event.inputs.target }}" \
+              SUBTARGET="${{ github.event.inputs.subtarget }}"
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kmod-rtl8188eu-ipks
+          name: rtl8188eu-ipks
           path: |
-            sdk/bin/packages/**/*.ipk
+            sdk/bin/packages/**/rtl8188eu*.ipk
+            sdk/bin/targets/**/*.ipk
