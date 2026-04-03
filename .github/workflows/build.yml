@@ -1,16 +1,16 @@
 name: Build rtl8188eu for ImmortalWrt 24.10
 
-于:
+on:
   workflow_dispatch:
     inputs:
       target:
         description: 'Target Platform (e.g., mediatek/filogic, rockchip/armv8, x86/64)'
         required: true
-        默认: 'mediatek/filogic'
+        default: 'mediatek/filogic'
       subtarget:
         description: 'Subtarget (Optional, leave empty if unsure)'
         required: false
-        默认: ''
+        default: ''
 
 jobs:
   build:
@@ -22,7 +22,8 @@ jobs:
 
       - name: Install Dependencies
         run: |
-  sudo apt-get update
+          sudo apt-get update
+          # 修复了 libstdc++-dev 的报错，明确指定版本 14
           sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
           gettext git java-propose-classpath libelf-dev libncurses5-dev \
           libncursesw5-dev libc6-dev openssl libssl-dev \
@@ -30,37 +31,43 @@ jobs:
 
       - name: Download ImmortalWrt SDK
         run: |
-          # 1. 下载 24.10 分支的 SDK (自动获取最新版本)
-          wget https://downloads.immortalwrt.org/releases/24.10-SNAPSHOT/targets/${{ github.event.inputs.target }}/immortalwrt-sdk-24.10-SNAPSHOT-${{ github.event.inputs.target }}_gcc-*.tar.xz -O sdk.tar.xz
+          # 1. 定义变量
+          TARGET="${{ github.event.inputs.target }}"
+          # 2. 下载 SDK (使用通配符匹配具体的 gcc 版本号)
+          # 注意：这里使用的是 24.10-SNAPSHOT 分支，因为官方 SDK 镜像通常以此命名
+          wget -q https://downloads.immortalwrt.org/releases/24.10-SNAPSHOT/targets/${TARGET}/immortalwrt-sdk-24.10-SNAPSHOT-${TARGET}_gcc-*.tar.xz -O sdk.tar.xz
           
-          # 2. 解压
+          # 3. 解压 SDK
           mkdir sdk
           tar -xf sdk.tar.xz -C sdk --strip-components=1
+          echo "SDK extracted to $(pwd)/sdk"
 
-      - name: Prepare Feeds
+      - name: Prepare Package
         run: |
           cd sdk
-          # 复制你的驱动源码到 package 目录
-          mkdir -p package/rtl8188eu
-          cp ../Makefile package/rtl8188eu/
-          cp -r ../patches package/rtl8188eu/ || true
           
-          # 更新 feeds
+          # 1. 创建驱动目录
+          mkdir -p package/rtl8188eu
+          
+          # 2. 复制源码 (Makefile 和 patches)
+          # 使用 -r 递归复制，确保 patches 文件夹也能进去
+          cp -r ../Makefile package/rtl8188eu/
+          cp -r ../patches package/rtl8188eu/ 2>/dev/null || true
+          
+          # 3. 更新 feeds (虽然只编译一个包，但为了保险起见)
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       - name: Build Package
         run: |
           cd sdk
-          # 配置编译选项
-          make defconfig
-          # 编译驱动模块
-          make package/rtl8188eu/compile V=s
+          # 编译命令
+          # V=s 显示详细日志，-j$(nproc) 使用多核加速
+          make package/rtl8188eu/compile V=s -j$(nproc)
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kmod-rtl8188eu
+          name: kmod-rtl8188eu-ipks
           path: |
-            sdk/bin/packages/*/rtl8188eu/*.ipk
-            sdk/bin/targets/*/*/*.ipk
+            sdk/bin/packages/**/*.ipk
