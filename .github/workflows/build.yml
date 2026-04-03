@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: 'Target Platform (e.g., x86/64, arm/virt)'
+        description: 'Target Platform (e.g., x86/64)'
         required: true
         default: 'x86/64'
       subtarget:
-        description: 'Subtarget (Optional, leave empty if unsure)'
+        description: 'Subtarget (Optional, leave empty)'
         required: false
         default: ''
 
@@ -28,64 +28,61 @@ jobs:
           libncursesw5-dev libc6-dev libssl-dev libstdc++-14-dev \
           libxml-parser-perl make unzip wget xsltproc zlib1g-dev zstd
 
-      - name: Clone ImmortalWrt Source 24.10.5
+      - name: Download and Extract SDK (Fixed Link)
         run: |
-          # 1. 克隆完整源码
-          git clone --depth 1 -b v24.10.5 https://github.com/immortalwrt/immortalwrt.git source
+          # 1. 定义 SDK 绝对链接
+          # 根据网页解析内容，直接使用 x86_64 版本的硬链接
+          SDK_URL="https://downloads.immortalwrt.org/releases/2024.10.5/targets/x86/64/immortalwrt-sdk-2024.10.5-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
           
-          cd source
-          # 2. 更新 feeds
-          ./scripts/feeds update -a
+          # 2. 下载 SDK
+          echo "Downloading SDK from: $SDK_URL"
+          wget "$SDK_URL" -O sdk.tar.zst
+          
+          # 3. 检查下载是否成功
+          if [ ! -f sdk.tar.zst ]; then
+            echo "Error: SDK download failed."
+            exit 1
+          fi
+          
+          # 4. 解压 SDK
+          mkdir sdk
+          tar -I zstd -xf sdk.tar.zst -C sdk --strip-components=1
+          echo "SDK extracted successfully."
 
       - name: Prepare Package
         run: |
-          # 1. 删除源码中自带的旧版 rtl8188eu 驱动，防止冲突
-          rm -rf source/package/kernel/rtl8188eu
+          # 1. 在 SDK 的 package 目录下创建我们的驱动目录
+          mkdir -p sdk/package/rtl8188eu
           
-          # 2. 创建标准目录
-          mkdir -p source/package/kernel/rtl8188eu
+          # 2. 复制你的驱动源码（Makefile, core, hal, patches 等）到 SDK 中
+          # 注意：这里假设你的仓库根目录就是驱动源码目录
+          cp -r ./* sdk/package/rtl8188eu/
           
-          # 3. 重构复制逻辑：显式复制已知文件，排除 source 目录
-          # 这样彻底避免了把 source 目录复制进它自己的死循环
-          # 假设你的仓库根目录包含：patches, Makefile, core, hal 等
+          # 3. 进入 SDK 目录
+          cd sdk
           
-          # 复制 patches 文件夹 (如果存在)
-          if [ -d "patches" ]; then
-            cp -r patches source/package/kernel/rtl8188eu/
-          fi
-          
-          # 复制 Makefile (如果存在)
-          if [ -f "Makefile" ]; then
-            cp Makefile source/package/kernel/rtl8188eu/
-          fi
-          
-          # 复制其他驱动源码目录 (根据你的实际目录结构调整，例如 core, hal, os_dep)
-          # 这里使用通配符，但排除了 .git 和 source 目录
-          for dir in core hal os_dep; do
-            if [ -d "$dir" ]; then
-              cp -r "$dir" source/package/kernel/rtl8188eu/
-            fi
-          done
-          
-          # 复制根目录下的其他必要文件 (如 Kconfig, 如果有的话)
-          cp -n ./* source/package/kernel/rtl8188eu/ 2>/dev/null || true
+          # 4. 更新 feeds (SDK 通常不需要，但为了保险)
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
       - name: Configure Build
         run: |
-          cd source
-          # 使用 echo -e 写入配置，避免 YAML 缩进错误
-          echo -e "CONFIG_TARGET_BOARD=\"${{ github.event.inputs.target }}\"\nCONFIG_TARGET_SUBTARGET=\"${{ github.event.inputs.subtarget }}\"\nCONFIG_TARGET_PROFILE=\"Default\"\nCONFIG_PACKAGE_rtl8188eu=m" > .config
+          cd sdk
+          # 写入配置
+          # 注意：SDK 编译通常不需要指定 TARGET_BOARD，因为它已经在 SDK 内部定好了
+          # 我们只需要启用我们的包
+          echo "CONFIG_PACKAGE_rtl8188eu=m" >> .config
           
           make defconfig
 
       - name: Build Package
         run: |
-          cd source
+          cd sdk
           # 编译驱动
-          make package/kernel/rtl8188eu/compile -j$(nproc) V=s
+          make package/rtl8188eu/compile -j$(nproc) V=s
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: rtl8188eu-ipk
-          path: source/bin/packages/**/*.ipk
+          path: sdk/bin/packages/**/*.ipk
