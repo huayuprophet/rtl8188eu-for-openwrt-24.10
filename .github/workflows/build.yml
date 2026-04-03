@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: 'Target Platform (e.g., mediatek/filogic, rockchip/armv8, x86/64)'
+        description: 'Target Platform (e.g., x86/64, arm/virt)'
         required: true
-        default: 'mediatek/filogic'
+        default: 'x86/64'
       subtarget:
         description: 'Subtarget (Optional, leave empty if unsure)'
         required: false
@@ -23,90 +23,64 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          # 修复依赖错误，明确指定 libstdc++ 版本
           sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
           gettext git java-propose-classpath libelf-dev libncurses5-dev \
           libncursesw5-dev libc6-dev libssl-dev libstdc++-14-dev \
-          libxml-parser-perl make unzip wget zlib1g-dev
+          libxml-parser-perl make unzip wget xsltproc zlib1g-dev zstd
 
-      - name: Download and Extract SDK (ImmortalWrt 24.10.5)
+      - name: Clone ImmortalWrt Source 24.10.5
         run: |
-          # 1. 定义变量
+          # 定义版本
           VERSION="24.10.5"
-          TARGET="${{ github.event.inputs.target }}"
-          SUBTARGET="${{ github.event.inputs.subtarget }}"
+          # 克隆源码
+          git clone --depth 1 -b releases/${VERSION} https://github.com/immortalwrt/immortalwrt.git source
+          cd source
           
-          # 如果未指定 subtarget，默认为空（适用于 x86/64 等单子目标平台）
-          if [ -z "$SUBTARGET" ]; then
-            SUBTARGET=""
-          fi
+          # 初始化 feeds
+          ./scripts/feeds update -a
 
-          # 2. 构造基础 URL
-          # 注意：24.10.5 的路径结构与 SNAPSHOT 略有不同
-          BASE_URL="https://downloads.immortalwrt.org/releases/${VERSION}/targets/${TARGET}/${SUBTARGET}"
-          
-          # 3. 自动获取 SDK 文件名
-          # 24.10.5 的 SDK 文件名通常包含 gcc-13.3.0 和 musl
-          echo "Fetching SDK list from ${BASE_URL}/..."
-          SDK_FILE=$(curl -s ${BASE_URL}/ | grep -oP "immortalwrt-sdk-${VERSION}-${TARGET}.*?\.tar\.zst" | head -n 1)
-
-          if [ -z "$SDK_FILE" ]; then
-            echo "Error: Could not find SDK file for ${TARGET}/${SUBTARGET} version ${VERSION}."
-            echo "Please check if the target path is correct."
-            exit 1
-          fi
-
-          echo "Found SDK: $SDK_FILE"
-          
-          # 4. 下载 SDK
-          wget ${BASE_URL}/${SDK_FILE} -O sdk.tar.zst
-
-          # 5. 解压 SDK
-          mkdir sdk
-          # 使用 zstd 解压 .tar.zst 文件
-          tar -I zstd -xf sdk.tar.zst -C sdk --strip-components=1
-          echo "SDK extracted successfully."
-
-      - name: Apply Patches
+      - name: Prepare Package
         run: |
-          # 将仓库中的 patches 文件夹复制到 SDK 中
-          cp -r patches sdk/
+          # 1. 复制你的驱动代码到源码树的 package 目录
+          # 注意：这里假设你的仓库根目录下的文件（Makefile, core, hal 等）是驱动源码
+          cp -r ./* source/package/rtl8188eu-custom/
           
-          # 进入 SDK 目录
-          cd sdk
+          # 2. 进入源码目录
+          cd source
           
-          # 应用所有 .patch 文件
-          echo "Applying patches..."
-          for patch in ../patches/*.patch; do
-            echo "Applying $patch..."
-            # -p1 是标准的补丁层级，如果报错可尝试 -p0
-            patch -p1 < "$patch"
-          done
-          echo "Patches applied."
+          # 3. 安装所有 feeds (这会包含 rtl8188eu-firmware 等依赖)
+          ./scripts/feeds install -a
+
+      - name: Configure Firmware
+        run: |
+          cd source
+          # 生成 .config 文件
+          # TARGET 和 SUBTARGET 处理
+          TARGET_BOARD="${{ github.event.inputs.target }}"
+          TARGET_SUBTARGET="${{ github.event.inputs.subtarget }}"
+
+          # 写入配置
+          cat > .config <<EOF
+# 通用设置
+CONFIG_TARGET_BOARD="$TARGET_BOARD"
+CONFIG_TARGET_SUBTARGET="$TARGET_SUBTARGET"
+CONFIG_TARGET_PROFILE="Default"
+CONFIG_TARGET_IMAGES_GZIP=y
+CONFIG_PACKAGE_rtl8188eu-custom=m
+EOF
+
+          # 运行 defconfig
+          make defconfig
 
       - name: Build Package
         run: |
-          cd sdk
-          
-          # 更新 feeds (如果需要，虽然 SDK 通常自带，但为了保险起见)
-          # ./scripts/feeds update -a
-          # ./scripts/feeds install -a
-          
-          # 配置编译选项
-          # 这里我们只编译 rtl8188eu 包
-          # 假设你的 Makefile 中定义的包名为 rtl8188eu
-          echo "CONFIG_PACKAGE_rtl8188eu=m" >> .config
-          
-          # 解决依赖关系
-          make defconfig
-          
+          cd source
           # 开始编译
-          # -j$(nproc) 使用所有 CPU 核心加速编译
-          # V=s 输出详细日志，方便排错
-          make package/rtl8188eu/compile -j$(nproc) V=s
+          # 错误提示：如果提示内存不足，可以去掉 -j$(nproc) 让其单线程编译
+          make package/rtl8188eu-custom/compile -j$(nproc) V=s
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: rtl8188eu-ipk
-          path: sdk/bin/packages/**/*.ipk
+          path: source/bin/packages/**/*.ipk
