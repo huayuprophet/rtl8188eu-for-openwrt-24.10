@@ -50,16 +50,8 @@ jobs:
       - name: Configure Build
         run: |
           cd source
-          
-          # 创建 .config 文件
-          cat > .config <<EOF
-CONFIG_TARGET_BOARD="${{ github.event.inputs.target }}"
-CONFIG_TARGET_SUBTARGET="${{ github.event.inputs.subtarget }}"
-CONFIG_TARGET_PROFILE="Default"
-CONFIG_PACKAGE_rtl8188eu-custom=m
-EOF
-
-          # 生成配置
+          # 使用 echo -e 替代 cat <<EOF 以避免 YAML 缩进错误
+          echo -e "CONFIG_TARGET_BOARD=\"${{ github.event.inputs.target }}\"\nCONFIG_TARGET_SUBTARGET=\"${{ github.event.inputs.subtarget }}\"\nCONFIG_TARGET_PROFILE=\"Default\"\nCONFIG_PACKAGE_rtl8188eu-custom=m" > .config
           make defconfig
 
       - name: Build Package
