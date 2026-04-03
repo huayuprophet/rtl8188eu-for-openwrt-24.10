@@ -1,0 +1,62 @@
+name: Build rtl8188eu for ImmortalWrt 24.10.5
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target Architecture (e.g., mediatek/filogic, rockchip/armv8, x86/64)'
+        required: true
+        default: 'mediatek/filogic'
+      subtarget:
+        description: 'Subtarget (Optional, leave empty if unsure)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      # 关键点：这里指定了具体的 24.10.5 版本镜像
+      image: immortalwrt/sdk:24.10.5
+      options: --user root
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Prepare Build Environment
+        run: |
+          # 更新 feeds
+          ./scripts/feeds update -a
+          # 这里的逻辑是：如果仓库里有 feeds.conf，就用仓库的；如果没有，就用 SDK 默认的
+          # 因为我们只是编译一个单独的包，通常不需要额外 feeds，除非驱动依赖其他库
+
+      - name: Link Package
+        run: |
+          # 将当前仓库的代码链接到 OpenWrt 的 package 目录中
+          # 这样 SDK 才能找到你的 Makefile
+          mkdir -p package/rtl8188eu
+          cp -r $GITHUB_WORKSPACE/* package/rtl8188eu/
+
+      - name: Build Package
+        run: |
+          # 定义目标
+          if [ -z "${{ github.event.inputs.subtarget }}" ]; then
+            TARGET="${{ github.event.inputs.target }}"
+          else
+            TARGET="${{ github.event.inputs.target }}/${{ github.event.inputs.subtarget }}"
+          fi
+
+          # 编译命令
+          make package/rtl8188eu/compile \
+              V=s \
+              TARGET=${{ github.event.inputs.target }} \
+              SUBTARGET="${{ github.event.inputs.subtarget }}"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipk-packages
+          path: |
+            bin/packages/**/rtl8188eu/*.ipk
+            bin/targets/**/packages/*.ipk
