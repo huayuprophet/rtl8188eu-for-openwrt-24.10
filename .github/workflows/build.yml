@@ -1,16 +1,16 @@
 name: Build rtl8188eu for ImmortalWrt 24.10
 
-on:
+于:
   workflow_dispatch:
     inputs:
       target:
         description: 'Target Platform (e.g., mediatek/filogic, rockchip/armv8, x86/64)'
         required: true
-        default: 'mediatek/filogic'
+        默认: 'mediatek/filogic'
       subtarget:
         description: 'Subtarget (Optional, leave empty if unsure)'
         required: false
-        default: ''
+        默认: ''
 
 jobs:
   build:
@@ -22,11 +22,11 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          sudo apt-get update
+  sudo apt-get update
           sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
           gettext git java-propose-classpath libelf-dev libncurses5-dev \
-          libncursesw5-dev libc6-dev openssl libssl-dev libstdc++-dev \
-          libxml-parser-perl make unzip wget xsltproc zlib1g-dev
+          libncursesw5-dev libc6-dev openssl libssl-dev \
+          libstdc++-14-dev libxml-parser-perl make unzip wget xsltproc zlib1g-dev
 
       - name: Download ImmortalWrt SDK
         run: |
