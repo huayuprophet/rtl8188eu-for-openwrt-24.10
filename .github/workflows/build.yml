@@ -53,15 +53,36 @@ jobs:
           # 1. 在 SDK 的 package 目录下创建我们的驱动目录
           mkdir -p sdk/package/rtl8188eu
           
-          # 2. 复制你的驱动源码（Makefile, core, hal, patches 等）到 SDK 中
-          cp -r ./* sdk/package/rtl8188eu/
+          # 2. 复制你的驱动源码到 SDK 中
+          # 关键点：这里不使用 cd sdk，而是直接指定源和目标路径
+          # 源路径：当前仓库根目录 (.)，但排除 sdk 目录本身
+          # 目标路径：sdk/package/rtl8188eu
           
-          # 3. 进入 SDK 目录
-          cd sdk
+          # 方法：显式复制已知文件，避免复制 sdk 目录本身
+          # 假设你的仓库根目录包含：patches, Makefile, core, hal 等
           
-          # 4. 更新 feeds (可选，为了保险)
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          # 复制 patches 文件夹 (如果存在)
+          if [ -d "patches" ]; then
+            cp -r patches sdk/package/rtl8188eu/
+          fi
+          
+          # 复制 Makefile (如果存在)
+          if [ -f "Makefile" ]; then
+            cp Makefile sdk/package/rtl8188eu/
+          fi
+          
+          # 复制其他驱动源码目录 (根据你的实际目录结构调整，例如 core, hal, os_dep)
+          for dir in core hal os_dep; do
+            if [ -d "$dir" ]; then
+              cp -r "$dir" sdk/package/rtl8188eu/
+            fi
+          done
+          
+          # 复制根目录下的其他必要文件 (如 Kconfig, 如果有的话)
+          # 使用 -n 参数防止覆盖已复制的文件，并忽略错误
+          cp -n ./* sdk/package/rtl8188eu/ 2>/dev/null || true
+          
+          echo "Package prepared successfully."
 
       - name: Configure Build
         run: |
